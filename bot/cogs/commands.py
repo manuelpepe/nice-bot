@@ -4,6 +4,7 @@ import requests
 import json
 from typing import Tuple, Union
 from functools import partial
+from collections import Counter
 from pkg_resources import resource_filename
 
 import matplotlib.pyplot as plt
@@ -13,6 +14,7 @@ from discord.ext.commands import Cog, command
 
 from bot.data import Columns
 from bot.eloAOE import get_player_history, PlayerNotFound, generate_elo_plot, SOLO_GAME_MODE, TEAM_GAME_MODE
+from bot.audit_logs import get_logs
 
 
 class Commands(Cog):
@@ -134,6 +136,29 @@ class Commands(Cog):
             ctx.send = partial(ctx.send, file=None)
             await ctx.send(axesData['taunt'])
 
+    @command(name='nice-admin', help='Returns admin actions graphs and info')
+    async def nice_admin(self, ctx):
+        mentions = ctx.message.mentions
+        if not mentions:  # Return number of actions per admin.
+            title = "Number of entries per user"
+            logs = [e.user.name for e in await get_logs(ctx.guild)]
+        else:  # Return number of actions per type by mentioned user.
+            title = f"Actions per type - @{mentions[0].name}"
+            logs = [e.action.name for e in await get_logs(ctx.guild) if e.user.id == mentions[0].id]
+        plot = plot_logs(logs)
+        embed = Embed(title=title, colour=0x00b2ff)
+        embed.set_image(url=f'attachment://graph.png')
+        await ctx.send(ctx.author.mention, file=plot, embed=embed)
+
+
+def plot_logs(logs: list, filename='graph.png'):
+    data = list(Counter(logs).items())
+    data = sorted(data, key=lambda t: t[1])
+    return File(
+        fp=generate_plot(data),
+        filename='graph.png'
+    )
+
 def plot_elo_niceness(playerName, matches, gameMode = SOLO_GAME_MODE):
     axesData = get_player_history(playerName, matches, gameMode)
     [plot, embed] = generate_elo_plot(axesData)
@@ -160,7 +185,7 @@ def generate_plot(data: Tuple[str, int]) -> io.BytesIO:
     ax.xaxis.set_major_locator(MaxNLocator(integer=True))
     ax.invert_yaxis()
     buf = io.BytesIO()
-    fig.savefig(buf, transparent=True, format='png')
+    fig.savefig(buf, transparent=True, format='png', bbox_inches = "tight")
     buf.seek(0)
     return buf
 
@@ -199,4 +224,3 @@ def get_fact() -> Union[str, File]:
     ) as f:
         content = [block.strip() for block in f.read().split('---')]
     return random.choice(content)
-
